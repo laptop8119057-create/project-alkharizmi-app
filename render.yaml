@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: project-alkharizmi
+    env: python
+    plan: free
+    region: oregon 
+    startCommand: "gunicorn run:create_app()" # Simplified start command
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.4
+      - key: XDG_CACHE_HOME
+        value: /opt/render/.cache
+    disk:
+      name: chroma-disk
+      mountPath: /app/chroma
+      sizeGB: 1
