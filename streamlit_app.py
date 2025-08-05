@@ -1,20 +1,11 @@
-# streamlit_app.py (FINAL PATCHED VERSION)
-
-# --- THE FINAL FIX: Force a newer SQLite3 version ---
-# This must be the very first import and code to run
-# It swaps the system's old sqlite3 with the newer version from pysqlite3-binary
-import sys
-if sys.platform == "linux":
-    __import__("pysqlite3")
-    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
-# --- END FIX ---
+# streamlit_app.py
 
 import streamlit as st
 import os
 import traceback
 from operator import itemgetter
 
-# --- MODERN LangChain & AI Imports ---
+# --- LangChain & AI Imports ---
 from huggingface_hub import login
 from langchain_community.llms import HuggingFaceEndpoint
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
@@ -41,6 +32,7 @@ UPLOAD_FOLDER = os.path.join(project_root, 'uploads')
 CHROMA_PATH = os.path.join(project_root, 'chroma')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(CHROMA_PATH, exist_ok=True)
+
 
 # --- Caching RAG Components (Lazy Loading) ---
 @st.cache_resource
@@ -89,17 +81,42 @@ def initialize_rag_components():
         traceback.print_exc()
         return None, None, None
 
+# --- Helper functions ---
+ALLOWED_EXTENSIONS = {'pdf', 'docx', 'jpg', 'jpeg'}
+def allowed_file(filename): return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def extract_text_from_file(filepath):
+    extension = filepath.rsplit('.', 1)[1].lower()
+    text = ""
+    try:
+        if extension == 'pdf':
+            with fitz.open(filepath) as doc:
+                for page in doc: text += page.get_text()
+        elif extension == 'docx':
+            doc = Document(filepath)
+            for para in doc.paragraphs: text += para.text + '\n'
+        elif extension in ['jpg', 'jpeg']:
+            text = pytesseract.image_to_string(Image.open(filepath))
+        return text
+    except Exception as e: 
+        print(f"Error extracting text: {e}")
+        return None
+
+
 # --- Main Application Logic ---
 db, rag_chain, retriever = initialize_rag_components()
 tab1, tab2 = st.tabs(["AI Assistant (Al-Kharizmi)", "Knowledge Base Manager (Scribe)"])
-# ... (The rest of the UI code is identical to the previous version) ...
+
+# --- Tab 1: AI Assistant ---
 with tab1:
     st.header("Project Al-Kharizmi")
     st.write("Ask a question about the documents in the knowledge base.")
     question = st.text_area("Your Question:", key="question_area")
     if st.button("Ask The Assistant", key="ask_button"):
-        if not question: st.warning("Please enter a question.")
-        elif rag_chain is None or retriever is None: st.error("RAG components are not available. Check initialization.")
+        if not question:
+            st.warning("Please enter a question.")
+        elif rag_chain is None or retriever is None:
+            st.error("RAG components are not available. Check initialization.")
         else:
             with st.spinner("Step 1 of 2: Searching knowledge base..."):
                 context_docs = retriever.invoke(question)
@@ -115,6 +132,8 @@ with tab1:
                 except Exception as e:
                     st.error(f"Failed to generate answer: {e}")
                     traceback.print_exc()
+
+# --- Tab 2: Knowledge Base Manager ---
 with tab2:
     st.header("Project Scribe")
     st.write("Manage the documents in the AI's knowledge base.")
@@ -125,8 +144,8 @@ with tab2:
         with open(filepath, "wb") as f: f.write(uploaded_file.getbuffer())
         with st.spinner(f"Processing '{filename}'..."):
             raw_text = extract_text_from_file(filepath)
-            if isinstance(raw_text, str) and "Error" in raw_text:
-                st.error(raw_text)
+            if raw_text is None:
+                st.error("Could not extract text from the file.")
             else:
                 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
                 documents = text_splitter.create_documents(texts=[raw_text], metadatas=[{"source": filename}])
@@ -162,17 +181,3 @@ with tab2:
                             except Exception as e: st.error(f"Failed to delete '{source}': {e}")
         except Exception as e:
             st.error(f"Could not retrieve documents from the database. It might be empty or corrupted. Error: {e}")
-def extract_text_from_file(filepath):
-    extension = filepath.rsplit('.', 1)[1].lower()
-    text = ""
-    try:
-        if extension == 'pdf':
-            with fitz.open(filepath) as doc:
-                for page in doc: text += page.get_text()
-        elif extension == 'docx':
-            doc = Document(filepath)
-            for para in doc.paragraphs: text += para.text + '\n'
-        elif extension in ['jpg', 'jpeg']:
-            text = pytesseract.image_to_string(Image.open(filepath))
-        return text
-    except Exception as e: return f"Error extracting text: {e}"
